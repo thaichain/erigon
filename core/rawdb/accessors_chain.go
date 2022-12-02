@@ -604,7 +604,8 @@ func ReadBodyForStorageByKey(db kv.Getter, k []byte) (*types.BodyForStorage, err
 		return nil, nil
 	}
 	bodyForStorage := new(types.BodyForStorage)
-	if err := rlp.DecodeBytes(bodyRlp, bodyForStorage); err != nil {
+	s := rlp.NewStream(bytes.NewReader(bodyRlp), 0)
+	if err = bodyForStorage.DecodeRLP(s); err != nil {
 		return nil, err
 	}
 
@@ -624,6 +625,7 @@ func ReadBody(db kv.Getter, hash common.Hash, number uint64) (*types.Body, uint6
 	}
 	body := new(types.Body)
 	body.Uncles = bodyForStorage.Uncles
+	body.Withdrawals = bodyForStorage.Withdrawals
 
 	if bodyForStorage.TxAmount < 2 {
 		panic(fmt.Sprintf("block body hash too few txs amount: %d, %d", number, bodyForStorage.TxAmount))
@@ -660,9 +662,10 @@ func WriteRawBody(db kv.RwTx, hash common.Hash, number uint64, body *types.RawBo
 		return false, 0, err
 	}
 	data := types.BodyForStorage{
-		BaseTxId: baseTxId,
-		TxAmount: uint32(len(body.Transactions)) + 2,
-		Uncles:   body.Uncles,
+		BaseTxId:    baseTxId,
+		TxAmount:    uint32(len(body.Transactions)) + 2,
+		Uncles:      body.Uncles,
+		Withdrawals: body.Withdrawals,
 	}
 	if err = WriteBodyForStorage(db, hash, number, &data); err != nil {
 		return false, 0, fmt.Errorf("WriteBodyForStorage: %w", err)
@@ -682,9 +685,10 @@ func WriteBody(db kv.RwTx, hash common.Hash, number uint64, body *types.Body) er
 		return err
 	}
 	data := types.BodyForStorage{
-		BaseTxId: baseTxId,
-		TxAmount: uint32(len(body.Transactions)) + 2,
-		Uncles:   body.Uncles,
+		BaseTxId:    baseTxId,
+		TxAmount:    uint32(len(body.Transactions)) + 2,
+		Uncles:      body.Uncles,
+		Withdrawals: body.Withdrawals,
 	}
 	if err := WriteBodyForStorage(db, hash, number, &data); err != nil {
 		return fmt.Errorf("failed to write body: %w", err)

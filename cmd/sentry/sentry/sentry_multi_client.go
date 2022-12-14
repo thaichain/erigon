@@ -381,15 +381,17 @@ func (cs *MultiClient) blockHeaders66(ctx context.Context, in *proto_sentry.Inbo
 	if _, err := rlpStream.List(); err != nil { // Now stream is at the beginning of 66 object
 		return fmt.Errorf("decode 1 BlockHeadersPacket66: %w", err)
 	}
-	if _, err := rlpStream.Uint(); err != nil { // Now stream is at the requestID field
+	var requestId uint64
+	var err error
+	if requestId, err = rlpStream.Uint(); err != nil { // Now stream is at the requestID field
 		return fmt.Errorf("decode 2 BlockHeadersPacket66: %w", err)
 	}
 	// Now stream is at the BlockHeadersPacket, which is list of headers
 
-	return cs.blockHeaders(ctx, pkt.BlockHeadersPacket, rlpStream, in.PeerId, sentry)
+	return cs.blockHeaders(ctx, pkt.BlockHeadersPacket, rlpStream, in.PeerId, sentry, requestId)
 }
 
-func (cs *MultiClient) blockHeaders(ctx context.Context, pkt eth.BlockHeadersPacket, rlpStream *rlp.Stream, peerID *proto_types.H512, sentry direct.SentryClient) error {
+func (cs *MultiClient) blockHeaders(ctx context.Context, pkt eth.BlockHeadersPacket, rlpStream *rlp.Stream, peerID *proto_types.H512, sentry direct.SentryClient, requestId uint64) error {
 	if len(pkt) == 0 {
 		outreq := proto_sentry.PeerUselessRequest{
 			PeerId: peerID,
@@ -397,7 +399,7 @@ func (cs *MultiClient) blockHeaders(ctx context.Context, pkt eth.BlockHeadersPac
 		if _, err := sentry.PeerUseless(ctx, &outreq, &grpc.EmptyCallOption{}); err != nil {
 			return fmt.Errorf("sending peer useless request: %v", err)
 		}
-		log.Debug("Requested removal of peer for empty header response", "peerId", fmt.Sprintf("%x", ConvertH512ToPeerID(peerID)))
+		log.Info("Requested removal of peer for empty header response", "peerId", fmt.Sprintf("%x", ConvertH512ToPeerID(peerID)))
 		// No point processing empty response
 		return nil
 	}
@@ -408,6 +410,7 @@ func (cs *MultiClient) blockHeaders(ctx context.Context, pkt eth.BlockHeadersPac
 	// Extract headers from the block
 	var highestBlock uint64
 	csHeaders := make([]headerdownload.ChainSegmentHeader, 0, len(pkt))
+	var nums []uint64
 	for _, header := range pkt {
 		headerRaw, err := rlpStream.Raw()
 		if err != nil {
@@ -424,8 +427,10 @@ func (cs *MultiClient) blockHeaders(ctx context.Context, pkt eth.BlockHeadersPac
 			Hash:      types.RawRlpHash(hRaw),
 			Number:    number,
 		})
+		nums = append(nums, number)
 	}
 	if cs.Hd.POSSync() {
+		fmt.Printf("returned from peer %x, req %d: %d\n", ConvertH512ToPeerID(peerID), requestId, nums)
 		sort.Sort(headerdownload.HeadersReverseSort(csHeaders)) // Sorting by reverse order of block heights
 		tx, err := cs.db.BeginRo(ctx)
 		if err != nil {

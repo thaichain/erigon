@@ -418,12 +418,13 @@ func (hd *HeaderDownload) RequestMoreHeaders(currentTime time.Time) (*HeaderRequ
 func (hd *HeaderDownload) requestMoreHeadersForPOS(currentTime time.Time) (timeout bool, request *HeaderRequest, penalties []PenaltyItem) {
 	anchor := hd.posAnchor
 	if anchor == nil {
-		log.Debug("[Downloader] No PoS anchor")
+		log.Info("[Downloader] No PoS anchor")
 		return
 	}
 
 	// Only process the anchors for which the nextRetryTime has already come
 	if anchor.nextRetryTime.After(currentTime) {
+		//log.Info("Anchor before its time", "to wait", anchor.nextRetryTime.Sub(currentTime))
 		return
 	}
 
@@ -644,7 +645,7 @@ func (hd *HeaderDownload) ProcessHeadersPOS(csHeaders []ChainSegmentHeader, tx k
 	if len(csHeaders) == 0 {
 		return nil, nil
 	}
-	log.Debug("[Downloader] Collecting...", "from", csHeaders[0].Number, "to", csHeaders[len(csHeaders)-1].Number, "len", len(csHeaders))
+	log.Info("[Downloader] Collecting...", "from", csHeaders[0].Number, "to", csHeaders[len(csHeaders)-1].Number, "len", len(csHeaders))
 	hd.lock.Lock()
 	defer hd.lock.Unlock()
 	if hd.posAnchor == nil {
@@ -658,19 +659,23 @@ func (hd *HeaderDownload) ProcessHeadersPOS(csHeaders []ChainSegmentHeader, tx k
 		return nil, nil
 	}
 
+	fmt.Printf("posAnchor: %x\n", hd.posAnchor.parentHash)
+
 	for _, sh := range csHeaders {
 		header := sh.Header
 		headerHash := sh.Hash
+		fmt.Printf("header %d %x Parent %x\n", header.Number.Uint64(), headerHash, header.ParentHash)
 
 		if headerHash != hd.posAnchor.parentHash {
 			if hd.posAnchor.blockHeight != 1 && sh.Number != hd.posAnchor.blockHeight-1 {
-				log.Debug("[Downloader] posAnchor", "blockHeight", hd.posAnchor.blockHeight)
-				return nil, nil
+				//log.Debug("[Downloader] posAnchor", "blockHeight", hd.posAnchor.blockHeight)
+				//return nil, nil
 			}
 			log.Debug("[Downloader] Unexpected header", "hash", headerHash, "expected", hd.posAnchor.parentHash, "peerID", common.Bytes2Hex(peerId[:]))
 			// Not penalise because we might have sent request twice
 			continue
 		}
+		fmt.Printf("header got through %d %x Parent %x\n", header.Number.Uint64(), headerHash, header.ParentHash)
 
 		headerNumber := header.Number.Uint64()
 		if err := hd.headersCollector.Collect(dbutils.HeaderKey(headerNumber, headerHash), sh.HeaderRaw); err != nil {
@@ -695,9 +700,11 @@ func (hd *HeaderDownload) ProcessHeadersPOS(csHeaders []ChainSegmentHeader, tx k
 			case hd.DeliveryNotify <- struct{}{}:
 			default:
 			}
+			fmt.Printf("completed download?\n")
 			return nil, nil
 		}
 
+		fmt.Printf("new anchor: %x %d peer %x\n", header.ParentHash, headerNumber, peerId)
 		hd.posAnchor = &Anchor{
 			parentHash:  header.ParentHash,
 			blockHeight: headerNumber,
@@ -1289,6 +1296,9 @@ func (hd *HeaderDownload) StartPoSDownloader(
 				currentTime = time.Now()
 				var timeout bool
 				timeout, req, penalties = hd.requestMoreHeadersForPOS(currentTime)
+				if req != nil {
+					//fmt.Printf("req = %+v\n", req)
+				}
 				if timeout {
 					hd.BeaconRequestList.Remove(hd.requestId)
 					hd.cleanUpPoSDownload()
@@ -1303,7 +1313,7 @@ func (hd *HeaderDownload) StartPoSDownloader(
 				if sentToPeer {
 					// If request was actually sent to a peer, we update retry time to be 5 seconds in the future
 					hd.UpdateRetryTime(req, currentTime, 30*time.Second /* timeout */)
-					log.Debug("[Downloader] Sent request", "height", req.Number)
+					log.Info("[Downloader] Sent request", "height", req.Number)
 				}
 			}
 			if len(penalties) > 0 {

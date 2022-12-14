@@ -2,6 +2,7 @@ package sentry
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 
 	"github.com/holiman/uint256"
@@ -129,6 +130,11 @@ func (cs *MultiClient) SendHeaderRequest(ctx context.Context, req *headerdownloa
 			if sentPeers == nil || len(sentPeers.Peers) == 0 {
 				continue
 			}
+			fmt.Printf("Sent request %+v, reqId: %d, peers: ", req, reqData.RequestId)
+			for _, p := range sentPeers.Peers {
+				fmt.Printf("%x ", ConvertH512ToPeerID(p))
+			}
+			fmt.Printf("\n")
 			return ConvertH512ToPeerID(sentPeers.Peers[0]), true
 		}
 	}

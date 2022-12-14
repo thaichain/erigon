@@ -393,6 +393,7 @@ func runPeer(
 				log.Error(fmt.Sprintf("%s: reading msg into bytes: %v", peerID, err))
 			}
 			send(eth.ToProto[protocol][msg.Code], peerID, b)
+			fmt.Printf("Block headers from peer %x: %s\n", peerID, peerInfo.peer.Fullname())
 		case eth.GetBlockBodiesMsg:
 			if !hasSubscribers(eth.ToProto[protocol][msg.Code]) {
 				continue

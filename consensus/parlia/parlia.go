@@ -68,8 +68,9 @@ var (
 	diffNoTurn = big.NewInt(1)            // Block difficulty for out-of-turn signatures
 	// 100 native token
 	maxSystemBalance = new(uint256.Int).Mul(uint256.NewInt(100), uint256.NewInt(params.Ether))
-
-	systemContracts = map[common.Address]struct{}{
+	BlockReward      = uint256.NewInt(6e+17)
+	endRewardBlock   = 52560120
+	systemContracts  = map[common.Address]struct{}{
 		systemcontracts.ValidatorContract:          {},
 		systemcontracts.SlashContract:              {},
 		systemcontracts.SystemRewardContract:       {},
@@ -79,6 +80,11 @@ var (
 		systemcontracts.TokenHubContract:           {},
 		systemcontracts.RelayerIncentivizeContract: {},
 		systemcontracts.CrossChainContract:         {},
+		systemcontracts.StakingPoolContract:        {},
+		systemcontracts.GovernanceContract:         {},
+		systemcontracts.ChainConfigContract:        {},
+		systemcontracts.RuntimeUpgradeContract:     {},
+		systemcontracts.DeployerProxyContract:      {},
 	}
 )
 
@@ -1059,31 +1065,26 @@ func (p *Parlia) distributeIncoming(val common.Address, state *state.IntraBlockS
 	usedGas *uint64, mining bool,
 ) (types.Transactions, types.Transactions, types.Receipts, error) {
 	coinbase := header.Coinbase
-	balance := state.GetBalance(consensus.SystemAddress).Clone()
-	if balance.Cmp(u256.Num0) <= 0 {
-		return txs, systemTxs, receipts, nil
-	}
-	state.SetBalance(consensus.SystemAddress, u256.Num0)
-	state.AddBalance(coinbase, balance)
-
-	doDistributeSysReward := state.GetBalance(systemcontracts.SystemRewardContract).Cmp(maxSystemBalance) < 0
-	if doDistributeSysReward {
-		var rewards = new(uint256.Int)
-		rewards = rewards.Rsh(balance, systemRewardPercent)
-		if rewards.Cmp(u256.Num0) > 0 {
-			var err error
-			var tx types.Transaction
-			var receipt *types.Receipt
-			if systemTxs, tx, receipt, err = p.distributeToSystem(rewards, state, header, len(txs), systemTxs, usedGas, mining); err != nil {
-				return nil, nil, nil, err
-			}
-			txs = append(txs, tx)
-			receipts = append(receipts, receipt)
-			//log.Debug("[parlia] distribute to system reward pool", "block hash", header.Hash(), "amount", rewards)
-			balance = balance.Sub(balance, rewards)
+	reward := uint256.NewInt(0)
+	// log.Warn("[parlia] ", "block hash", header.Hash(), "Block=", header.Number)
+	if header.Number.Cmp(common.Big1) <= endRewardBlock {
+		reward = new(uint256.Int).Set(BlockReward)
+		state.AddBalance(coinbase, reward)
+		balanceval := state.GetBalance(coinbase)
+		if balanceval.Cmp(reward) <= 0 {
+			// log.Warn("[parlia] ", "validator ", coinbase, "amount=", balanceval)
+			return txs, systemTxs, receipts, nil
 		}
 	}
-	//log.Debug("[parlia] distribute to validator contract", "block hash", header.Hash(), "amount", balance)
+	fee := state.GetBalance(consensus.SystemAddress).Clone()
+	if fee.Cmp(u256.Num0) > 0 {
+		state.SetBalance(consensus.SystemAddress, u256.Num0)
+		state.AddBalance(coinbase, fee)
+	}
+	balance := reward
+	balance.Add(balance, fee)
+
+	// log.Warn("[parlia] distribute to validator contract", "block hash", header.Hash(), "amount", balance)
 	var err error
 	var tx types.Transaction
 	var receipt *types.Receipt
@@ -1125,11 +1126,12 @@ func (p *Parlia) initContract(state *state.IntraBlockState, header *types.Header
 	contracts := []common.Address{
 		systemcontracts.ValidatorContract,
 		systemcontracts.SlashContract,
-		systemcontracts.LightClientContract,
-		systemcontracts.RelayerHubContract,
-		systemcontracts.TokenHubContract,
-		systemcontracts.RelayerIncentivizeContract,
-		systemcontracts.CrossChainContract,
+		systemcontracts.SystemRewardContract,
+		systemcontracts.StakingPoolContract,
+		systemcontracts.GovernanceContract,
+		systemcontracts.ChainConfigContract,
+		systemcontracts.RuntimeUpgradeContract,
+		systemcontracts.DeployerProxyContract,
 	}
 	// get packed data
 	data, err := p.validatorSetABI.Pack(method)

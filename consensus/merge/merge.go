@@ -141,6 +141,25 @@ func (s *Merge) Prepare(chain consensus.ChainHeaderReader, header *types.Header,
 	return nil
 }
 
+func accumulateRewards(config *chain.Config, state *state.IntraBlockState, header *types.Header, uncles []*types.Header) {
+	blockReward := uint256.NewInt(0)
+	blockNumber := header.Number
+	twoMillion := big.NewInt(2000000)
+	fourMillion := big.NewInt(4000000)
+	sevenMillion := big.NewInt(7000000)
+	switch {
+	case blockNumber.Cmp(sevenMillion) == 1:
+		blockReward = uint256.NewInt(0)
+	case blockNumber.Cmp(fourMillion) == 1:
+		blockReward = uint256.NewInt(15e+17)
+	case blockNumber.Cmp(twoMillion) == 1:
+		blockReward = uint256.NewInt(3e+18)
+	default:
+		blockReward = uint256.NewInt(6e+18)
+	}
+	state.AddBalance(header.Coinbase, blockReward, tracing.BalanceIncreaseRewardMineBlock)
+}
+
 func (s *Merge) CalculateRewards(config *chain.Config, header *types.Header, uncles []*types.Header, syscall consensus.SystemCall,
 ) ([]consensus.Reward, error) {
 	_, isAura := s.eth1Engine.(*aura.AuRa)
@@ -219,6 +238,7 @@ func (s *Merge) Finalize(config *chain.Config, header *types.Header, state *stat
 		}
 	}
 
+	accumulateRewards(config, state, header, uncles)
 	return txs, receipts, rs, nil
 }
 
